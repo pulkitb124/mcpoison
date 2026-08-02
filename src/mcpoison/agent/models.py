@@ -26,7 +26,7 @@ class ModelClient(ABC):
         self.model = model
 
     @abstractmethod
-    def generate(
+    async def generate(
         self,
         system: str | None,
         messages: list[Message],
@@ -41,9 +41,9 @@ class AnthropicClient(ModelClient):
     def __init__(self, model: str = "claude-haiku-4-5-20251001", max_tokens: int = 1024):
         super().__init__(model)
         self.max_tokens = max_tokens
-        self._client = anthropic.Anthropic(api_key=get_key("anthropic"))
+        self._client = anthropic.AsyncAnthropic(api_key=get_key("anthropic"))
 
-    def generate(
+    async def generate(
         self,
         system: str | None,
         messages: list[Message],
@@ -59,7 +59,7 @@ class AnthropicClient(ModelClient):
         if tools:
             kwargs["tools"] = [self._tool_schema(t) for t in tools]
 
-        resp = self._client.messages.create(**kwargs)
+        resp = await self._client.messages.create(**kwargs)
         return self._parse(resp)
 
     @staticmethod

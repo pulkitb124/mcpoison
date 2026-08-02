@@ -36,7 +36,7 @@ class Transcript:
         return [call for step in self.steps for call in step.turn.tool_calls]
 
 
-def run_agent(
+async def run_agent(
     client: ModelClient,
     tools: list[Tool],
     task: str,
@@ -49,7 +49,7 @@ def run_agent(
     transcript = Transcript(task=task)
 
     for i in range(max_steps):
-        turn = client.generate(system, messages, tools)
+        turn = await client.generate(system, messages, tools)
         messages.append(Message.assistant(text=turn.text, tool_calls=turn.tool_calls))
         step = Step(index=i, turn=turn)
 
@@ -69,7 +69,7 @@ def run_agent(
                 content = f"Error: no tool named {call.name!r} is available."
             else:
                 try:
-                    content = tool.run(call.arguments)
+                    content = await tool.run(call.arguments)
                 except Exception as exc:  # a broken tool shouldn't crash the run
                     content = f"Error running tool {call.name!r}: {exc}"
             results.append(ToolResult(tool_call_id=call.id, content=content))

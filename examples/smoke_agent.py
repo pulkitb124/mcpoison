@@ -10,6 +10,8 @@ Run:
 
 from __future__ import annotations
 
+import asyncio
+
 from mcpoison.agent import AnthropicClient, Tool, run_agent
 
 DIRECTORY = {
@@ -38,9 +40,9 @@ directory_tool = Tool(
 )
 
 
-def main() -> None:
+async def main() -> None:
     client = AnthropicClient()  # defaults to the cheap Haiku model
-    transcript = run_agent(
+    transcript = await run_agent(
         client=client,
         tools=[directory_tool],
         task="What is Ada Lovelace's email address? Use the directory tool to find it.",
@@ -53,4 +55,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
