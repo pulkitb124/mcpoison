@@ -51,13 +51,17 @@ class MCPConnection:
         self.tools: list[Tool] = []
 
     @classmethod
-    def for_module(cls, module: str, **kwargs) -> MCPConnection:
+    def for_module(
+        cls, module: str, module_args: list[str] | None = None, **kwargs
+    ) -> MCPConnection:
         """Build a connection object for a server run as `python -m <module>` (same venv).
 
-        This only configures the connection; entering the `async with` block is
-        what actually launches the server and connects.
+        `module_args` are extra command-line arguments passed to the server
+        module (e.g. ["--inject"]). This only configures the connection;
+        entering the `async with` block is what actually launches and connects.
         """
-        return cls(command=sys.executable, args=["-m", module], **kwargs)
+        args = ["-m", module, *(module_args or [])]
+        return cls(command=sys.executable, args=args, **kwargs)
 
     async def __aenter__(self) -> MCPConnection:
         read, write = await self._stack.enter_async_context(stdio_client(self._params))
