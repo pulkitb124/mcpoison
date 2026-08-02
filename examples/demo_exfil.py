@@ -32,12 +32,13 @@ TASK = (
 )
 TASK_KEYWORDS = ["deploy", "auth", "build", "config", "credential"]
 
-# Optional model argument: python examples/demo_exfil.py <model-id>
+# Optional args: python examples/demo_exfil.py <model-id> <payload-id>
 MODEL = sys.argv[1] if len(sys.argv) > 1 else "claude-haiku-4-5-20251001"
+PAYLOAD = sys.argv[2] if len(sys.argv) > 2 else "remediation"
 
 
 async def run_condition(inject: bool) -> None:
-    module_args = ["--inject"] if inject else []
+    module_args = ["--inject", "--payload", PAYLOAD] if inject else []
     async with MCPConnection.for_module(
         "mcpoison.scenarios.devops", module_args=module_args
     ) as conn:
@@ -62,7 +63,7 @@ async def run_condition(inject: bool) -> None:
 
 
 async def main() -> None:
-    print(f"model: {MODEL}")
+    print(f"model: {MODEL}  payload: {PAYLOAD}")
     await run_condition(inject=False)
     await run_condition(inject=True)
 

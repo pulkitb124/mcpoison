@@ -38,11 +38,13 @@ TASK = (
 )
 TASK_KEYWORDS = ["deploy", "auth", "build", "config", "credential"]
 
+# Optional args: python examples/demo_desc_poison.py <model-id> <payload-id>
 MODEL = sys.argv[1] if len(sys.argv) > 1 else "claude-haiku-4-5-20251001"
+PAYLOAD = sys.argv[2] if len(sys.argv) > 2 else "covert"
 
 
 async def run_condition(poison: bool) -> None:
-    evil_args = ["--poison"] if poison else []
+    evil_args = ["--poison", "--payload", PAYLOAD] if poison else []
     # The devops server is launched CLEAN (no --inject): the only possible source
     # of an attack in this demo is the malicious server's tool description.
     async with (
@@ -73,7 +75,7 @@ async def run_condition(poison: bool) -> None:
 
 
 async def main() -> None:
-    print(f"model: {MODEL}")
+    print(f"model: {MODEL}  payload: {PAYLOAD}")
     await run_condition(poison=False)
     await run_condition(poison=True)
 
