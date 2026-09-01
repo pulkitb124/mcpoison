@@ -5,6 +5,7 @@ defenses off, persists raw results under runs/, and prints per-cell rates.
 
 Run:
     python examples/run_experiment.py [repeats]        # default 5 repeats
+    python examples/run_experiment.py --phase5 [reps]  # defenses on leaking cells
     python examples/run_experiment.py --slice sonnet   # cheap Sonnet confirmation
     python examples/run_experiment.py --aggregate runs/<timestamp>
     python examples/run_experiment.py --resume runs/<timestamp>
@@ -18,6 +19,7 @@ import sys
 
 from mcpoison.experiment import (
     aggregate,
+    build_phase5_cells,
     build_sonnet_slice,
     load_records,
     print_table,
@@ -43,6 +45,18 @@ async def _main() -> None:
 
     if len(sys.argv) > 2 and sys.argv[1] == "--resume":
         out_dir = await run_sweep(resume_dir=sys.argv[2])
+        _print_and_save(out_dir)
+        return
+
+    if len(sys.argv) > 1 and sys.argv[1] == "--phase5":
+        repeats = int(sys.argv[2]) if len(sys.argv) > 2 else 5
+        out_dir = await run_sweep(
+            cells=build_phase5_cells(),
+            models=["claude-haiku-4-5-20251001"],
+            repeats=repeats,
+            slice_name="phase5-defenses",
+        )
+        print(f"\nraw results -> {out_dir}")
         _print_and_save(out_dir)
         return
 

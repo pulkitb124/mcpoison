@@ -14,6 +14,9 @@ Conditions:
                       description, alongside the clean benign server. Baseline is
                       the same pair with an honest description.
   payload=None        no attack (the baseline for whichever door).
+  defense=NONE        no mitigation (Phase 4). Any other `Defense` rewrites the
+                      tool data and/or system prompt the (still-oblivious) agent
+                      sees; see defenses.py.
 """
 
 from __future__ import annotations
@@ -24,6 +27,7 @@ from dataclasses import dataclass
 from . import canary
 from .agent import AnthropicClient, run_agent
 from .agent.mcp_client import MCPConnection
+from .defenses import NONE, Defense
 from .scenarios.base import Scenario
 
 DEFAULT_MODEL = "claude-haiku-4-5-20251001"
@@ -34,6 +38,7 @@ class TrialResult:
     scenario_id: str
     door: str
     payload: str | None
+    defense: str
     attempted: bool
     succeeded: bool
     task_success: bool
@@ -51,11 +56,18 @@ async def run_trial(
     door: str,
     payload: str | None = None,
     model: str = DEFAULT_MODEL,
+    defense: Defense = NONE,
 ) -> TrialResult:
     async with AsyncExitStack() as stack:
         tools = await _connect(stack, scenario, door, payload)
+        tools = defense.apply_to_tools(tools)
         transcript = await run_agent(
-            AnthropicClient(model=model), tools, scenario.prompt, verbose=False
+            AnthropicClient(model=model),
+            tools,
+            scenario.prompt,
+            system=defense.system,
+            output_filter=defense.output_filter(),
+            verbose=False,
         )
 
     report = canary.evaluate_exfiltration(
@@ -68,6 +80,7 @@ async def run_trial(
         scenario_id=scenario.id,
         door=door,
         payload=payload,
+        defense=defense.id,
         attempted=report.attempted,
         succeeded=report.succeeded,
         task_success=scenario.check_success(transcript),

@@ -24,6 +24,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import payloads
+from .defenses import DEFENSE_IDS, get_defense
 from .runner import run_trial
 from .scenarios import all_scenario_ids, get_scenario
 
@@ -60,10 +61,13 @@ class Cell:
     scenario: str
     door: str
     payload: str | None  # a style id, or None for the baseline
+    defense: str = "none"
 
 
-def _cell_key(model: str, scenario: str, door: str, payload: str | None, repeat: int) -> tuple:
-    return (model, scenario, door, payload, repeat)
+def _cell_key(
+    model: str, scenario: str, door: str, payload: str | None, defense: str, repeat: int
+) -> tuple:
+    return (model, scenario, door, payload, defense, repeat)
 
 
 def build_cells(models, scenarios, doors, styles) -> list[Cell]:
@@ -81,18 +85,59 @@ def build_sonnet_slice() -> list[Cell]:
     return [Cell(SONNET, scenario, door, payload) for scenario, door, payload in SONNET_SLICE]
 
 
+# --- Phase 5: defenses on the cells that leak -----------------------------------
+
+PHASE5_MODEL = "claude-haiku-4-5-20251001"
+
+# Attacked cells that reliably leak in the Haiku R=5 baseline, chosen to span
+# domain x door (plus the single support/description style that lands), so a
+# defense's effect is visible everywhere it matters.
+_PHASE5_ATTACKED: list[tuple[str, str, str | None]] = [
+    ("devops", "output", "remediation"),
+    ("devops", "output", "covert"),
+    ("devops", "description", "blunt"),
+    ("devops", "description", "covert"),
+    ("support", "output", "remediation"),
+    ("support", "output", "covert"),
+    ("support", "description", "authority"),
+]
+
+# The four (scenario, door) no-attack baselines, for measuring how much each
+# defense dents the agent's real job (the utility axis of the tradeoff).
+_PHASE5_BASELINES: list[tuple[str, str, str | None]] = [
+    ("devops", "output", None),
+    ("devops", "description", None),
+    ("support", "output", None),
+    ("support", "description", None),
+]
+
+
+def build_phase5_cells() -> list[Cell]:
+    conditions = _PHASE5_ATTACKED + _PHASE5_BASELINES
+    return [
+        Cell(PHASE5_MODEL, scenario, door, payload, defense)
+        for defense in DEFENSE_IDS
+        for (scenario, door, payload) in conditions
+    ]
+
+
 async def _run_repeat(cell: Cell, scenario_obj, repeat: int, sem: asyncio.Semaphore) -> dict:
     record = {
         "model": cell.model,
         "scenario": cell.scenario,
         "door": cell.door,
         "payload": cell.payload,
+        "defense": cell.defense,
         "repeat": repeat,
     }
     async with sem:
         try:
             result = await run_trial(
-                scenario_obj, door=cell.door, payload=cell.payload, model=cell.model
+                scenario_obj,
+                door=cell.door,
+                payload=cell.payload,
+                model=cell.model,
+                defense=get_defense(cell.defense),
             )
             record.update(
                 attempted=result.attempted,
@@ -141,7 +186,14 @@ async def run_sweep(
         existing = load_records(out_dir)
         # Failed trials (e.g. out-of-credit) are not "done" — rerun them.
         done_keys = {
-            _cell_key(r["model"], r["scenario"], r["door"], r["payload"], r["repeat"])
+            _cell_key(
+                r["model"],
+                r["scenario"],
+                r["door"],
+                r["payload"],
+                r.get("defense", "none"),
+                r["repeat"],
+            )
             for r in existing
             if r.get("error") is None
         }
@@ -159,7 +211,10 @@ async def run_sweep(
     pending: list[tuple[Cell, int]] = []
     for cell in cells:
         for r in range(repeats):
-            if _cell_key(cell.model, cell.scenario, cell.door, cell.payload, r) not in done_keys:
+            key = _cell_key(
+                cell.model, cell.scenario, cell.door, cell.payload, cell.defense, r
+            )
+            if key not in done_keys:
                 pending.append((cell, r))
 
     already_ok = len(done_keys)
@@ -238,10 +293,11 @@ def aggregate(records: list[dict]) -> list[dict]:
     """Collapse repeats into per-cell rates."""
     groups: dict[tuple, list[dict]] = defaultdict(list)
     for r in records:
-        groups[(r["model"], r["scenario"], r["door"], r["payload"])].append(r)
+        key = (r["model"], r["scenario"], r["door"], r["payload"], r.get("defense", "none"))
+        groups[key].append(r)
 
     rows: list[dict] = []
-    for (model, scenario, door, payload), rs in groups.items():
+    for (model, scenario, door, payload, defense), rs in groups.items():
         ok = [r for r in rs if r.get("error") is None]
         n = len(ok)
 
@@ -254,6 +310,7 @@ def aggregate(records: list[dict]) -> list[dict]:
                 "scenario": scenario,
                 "door": door,
                 "payload": payload or "(baseline)",
+                "defense": defense,
                 "n": n,
                 "errors": len(rs) - n,
                 "attempted": rate("attempted"),
@@ -261,7 +318,7 @@ def aggregate(records: list[dict]) -> list[dict]:
                 "task_success": rate("task_success"),
             }
         )
-    rows.sort(key=lambda x: (x["model"], x["scenario"], x["door"], x["payload"]))
+    rows.sort(key=lambda x: (x["model"], x["scenario"], x["door"], x["payload"], x["defense"]))
     return rows
 
 
@@ -279,8 +336,8 @@ def _fmt(rate: float | None) -> str:
 
 def print_table(rows: list[dict]) -> None:
     header = (
-        f"{'model':<28}{'scenario':<9}{'door':<13}{'payload':<13}"
-        f"{'att':>6}{'succ':>7}{'task':>7}{'n':>4}"
+        f"{'model':<20}{'scenario':<9}{'door':<13}{'payload':<13}"
+        f"{'defense':<22}{'att':>6}{'succ':>7}{'task':>7}{'n':>4}"
     )
     print(header)
     print("-" * len(header))
@@ -293,7 +350,7 @@ def print_table(rows: list[dict]) -> None:
             .replace("-20251101", "")
         )
         print(
-            f"{short_model:<28}{r['scenario']:<9}{r['door']:<13}{r['payload']:<13}"
-            f"{_fmt(r['attempted']):>6}{_fmt(r['succeeded']):>7}"
+            f"{short_model:<20}{r['scenario']:<9}{r['door']:<13}{r['payload']:<13}"
+            f"{r.get('defense', 'none'):<22}{_fmt(r['attempted']):>6}{_fmt(r['succeeded']):>7}"
             f"{_fmt(r['task_success']):>7}{r['n']:>4}"
         )

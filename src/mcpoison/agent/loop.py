@@ -11,6 +11,7 @@ inspect and, later, measure what happened (e.g. whether a forbidden action fired
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from .models import ModelClient
@@ -43,6 +44,7 @@ async def run_agent(
     system: str | None = None,
     max_steps: int = 10,
     verbose: bool = True,
+    output_filter: Callable[[str, str], str] | None = None,
 ) -> Transcript:
     registry = {tool.name: tool for tool in tools}
     messages: list[Message] = [Message.user(task)]
@@ -70,6 +72,8 @@ async def run_agent(
             else:
                 try:
                     content = await tool.run(call.arguments)
+                    if output_filter is not None:
+                        content = output_filter(call.name, content)
                 except Exception as exc:  # a broken tool shouldn't crash the run
                     content = f"Error running tool {call.name!r}: {exc}"
             results.append(ToolResult(tool_call_id=call.id, content=content))
